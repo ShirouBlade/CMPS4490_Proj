@@ -1,10 +1,10 @@
 //program: proj_prototype.cpp
 //author:  Danny Simpson
-//date:    March 08, 2024
+//date:    April 02, 2024
 //
 //
 //
-//Framework for a 3D game.
+//Prototype for aerial obstacle course.
 //
 #include <stdio.h>
 #include <stdlib.h>
@@ -127,17 +127,20 @@ public:
     int menu;
 	Flt aspectRatio;
 	Vec cameraPosition;
+    float initialz;
     Matrix cameraMat;
     Vec cameraDir;
 	GLfloat lightPosition[4];
     struct timespec smokeStart, smokeTime;
     struct timespec cloudStart, cloudTime;
+    struct timespec introStart, introPause, introTime;
     Smoke *smoke;
     Smoke *cloud;
     int nsmokes;
     int nclouds;
     int gamestart;
     float offset[3];
+    int intro;
     ~Global() {
         if (smoke)
         delete [] smoke;
@@ -150,6 +153,7 @@ public:
 		yres=480;
 		aspectRatio = (GLfloat)xres / (GLfloat)yres;
 		MakeVector(0.0, 1.0, 8.0, cameraPosition);
+        initialz = cameraPosition[2];
         MakeVector(0.0, 0.0, -1.0, cameraDir);
 		//light is up high, right a little, toward a little
 		MakeVector(100.0f, 240.0f, 40.0f, lightPosition);
@@ -161,6 +165,7 @@ public:
         cloud = new Smoke[MAX_SMOKES];
         gamestart = 0;
         offset[2] = 0.0f;
+        intro = 1;
 	}
 	void init_opengl();
 	void init();
@@ -270,6 +275,8 @@ int main()
 	g.init_opengl();
 	int done = 0;
     g.menu = 0;
+    clock_gettime(CLOCK_REALTIME, &g.introPause);
+    clock_gettime(CLOCK_REALTIME, &g.introStart);
 	while (!done) {
 		while (x11.getXPending()) {
 			XEvent e = x11.getXNextEvent();
@@ -1115,6 +1122,11 @@ void Global::physics()
 void Global::render()
 {
     if(g.gamestart > 0){
+        static int justonce = 1;
+        if(justonce == 1){
+            g.cameraPosition[2] = g.initialz;
+            justonce = 0;
+        }
         Rect r;
         glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
         //
@@ -1189,6 +1201,13 @@ void Global::render()
         }
         glPopAttrib();
     } else {
+        /*
+        double d;
+        clock_gettime(CLOCK_REALTIME, &g.introTime);
+        d = timeDiff(&introStart, &introTime);
+        timeCopy(&introStart, &introTime);
+        */
+        
         Rect r;
         glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
         //
@@ -1218,8 +1237,21 @@ void Global::render()
         r.bot = g.yres - 20;
         r.left = 10;
         r.center = 0;
-        ggprint8b(&r, 16, 0x00990000, "to start press 'm'");
+        //ggprint8b(&r, 16, 0x00990000, "to start press 'm'");
         glPopAttrib();
+        if(g.cameraPosition[2] > (5.0-2.5))
+            g.cameraPosition[2] -= 0.01;
+        if(g.cameraPosition[2] <= (5.0-2.5)){
+            r.bot = g.yres/2;
+            r.left = g.xres/2 - g.xres/10;
+            r.center = 0;
+            ggprint16(&r, 16, 0x00990000, "Aerial Obstacle");
+            r.left = g.xres/2 - g.xres/10 + 10;
+            ggprint12(&r, 16, 0x00990000, "to start game");
+            r.left = g.xres/2 - g.xres/10 + 20;
+            ggprint12(&r, 16, 0x00990000, "press 'm'");
+        }
+
     }
 }
 
