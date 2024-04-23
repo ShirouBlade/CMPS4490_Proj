@@ -16,6 +16,7 @@
 #include <GL/gl.h>
 #include <GL/glx.h>
 #include <GL/glu.h>
+#include <GL/glut.h>
 #include "defs.h"
 #include "log.h"
 #include "fonts.h"
@@ -26,6 +27,7 @@
 typedef float Flt;
 typedef Flt Vec[3];
 typedef Flt Matrix[4][4];
+
 
 //some macros
 const Vec upv = {0.0, 1.0, 0.0};
@@ -109,10 +111,23 @@ class Smoke {
         Flt alpha;
         Smoke() { }
 };
+class Cloud {
+    public:
+        int x;
+        int y;
+        int random;
+        float cloudmap32[32*32];
+        float cloudmap256[256*256];
+        Flt alpha;
+};
 //-----------------------------------------------------------------------------
 //Setup timers
-const double OOBILLION = 1.0 / 1e9;
+const double physicsRate = 1.0 / 60.0;
+const double oobillion = 1.0 / 1e9;
 extern struct timespec timeStart, timeCurrent;
+extern struct timespec timePause;
+extern double physicsCountdown;
+extern double timeSpan;
 extern double timeDiff(struct timespec *start, struct timespec *end);
 extern void timeCopy(struct timespec *dest, struct timespec *source);
 //-----------------------------------------------------------------------------
@@ -136,11 +151,14 @@ public:
     struct timespec introStart, introPause, introTime;
     Smoke *smoke;
     Smoke *cloud;
+    Cloud *background;
     int nsmokes;
     int nclouds;
+    int vsync;
     int gamestart;
     float offset[3];
     int intro;
+    int fps;
     ~Global() {
         if (smoke)
         delete [] smoke;
@@ -162,10 +180,12 @@ public:
         nsmokes = 0;
         nclouds = 0;
         smoke = new Smoke[MAX_SMOKES];
-        cloud = new Smoke[MAX_SMOKES];
+        cloud = new Smoke[(MAX_SMOKES * 6)];
+        background = new Cloud;
         gamestart = 0;
         offset[2] = 0.0f;
         intro = 1;
+        vsync = 1;
 	}
 	void init_opengl();
 	void init();
@@ -184,10 +204,10 @@ void crossProduct(const Vec v1, const Vec v2, Vec v3) {
 
 class X11_wrapper {
 private:
-	Display *dpy;
 	Window win;
 	GLXContext glc;
 public:
+	Display *dpy;
 	X11_wrapper() {
 		//Look here for information on XVisualInfo parameters.
 		//http://www.talisman.org/opengl-1.1/Reference/glXChooseVisual.html
@@ -269,14 +289,21 @@ public:
 	}
 } x11;
 
-
+void OverlapOctaves(float  *map32, float  *map256);
+void ExpFilter(float  *map);
 int main()
 {
 	g.init_opengl();
+	srand(time(NULL));
 	int done = 0;
+    int fps = 0;
     g.menu = 0;
-    clock_gettime(CLOCK_REALTIME, &g.introPause);
-    clock_gettime(CLOCK_REALTIME, &g.introStart);
+    clock_gettime(CLOCK_REALTIME, &timePause);
+    clock_gettime(CLOCK_REALTIME, &timeStart);
+    struct timespec fpsStart;
+    struct timespec fpsCurr;
+    physicsCountdown = 0.0;
+    clock_gettime(CLOCK_REALTIME, &fpsStart);
 	while (!done) {
 		while (x11.getXPending()) {
 			XEvent e = x11.getXNextEvent();
@@ -284,16 +311,35 @@ int main()
 			g.check_mouse(&e);
 			done = g.check_keys(&e);
 		}
-		g.physics();
+        clock_gettime(CLOCK_REALTIME, &timeCurrent);
+        timeSpan = timeDiff(&timeStart, &timeCurrent);
+        timeCopy(&timeStart, &timeCurrent);
+	physicsCountdown += timeSpan;
+	    while (physicsCountdown >= physicsRate){
+            g.physics();
+            physicsCountdown -= physicsRate;
+        }
+        ++fps;
+        clock_gettime(CLOCK_REALTIME, &fpsCurr);
+        double diff = timeDiff(&fpsStart, &fpsCurr);
+        if (diff >= 1.0) {
+            g.fps = fps;
+            fps = 0;
+            timeCopy(&fpsStart, &fpsCurr);
+        }
 		g.render();
 		x11.swapBuffers();
+        OverlapOctaves(g.background->cloudmap32, g.background -> cloudmap256);
+        ExpFilter(g.background -> cloudmap256);
 	}
 	cleanup_fonts();
 	return 0;
 }
 
+void SetNoise(float  *map);
 void Global::init() {
 	//Place general program initializations here.
+    SetNoise(background -> cloudmap32);
 }
 
 void Global::init_opengl()
@@ -475,6 +521,20 @@ int Global::check_keys(XEvent *e)
             case XK_p:
                 screenShot();
                 break;
+	    case XK_v: {
+		       g.vsync ^= 1;
+		       static PFNGLXSWAPINTERVALEXTPROC glXSwapIntervalEXT = NULL;
+                        glXSwapIntervalEXT =
+                                (PFNGLXSWAPINTERVALEXTPROC)glXGetProcAddressARB(
+                                (const GLubyte *)"glXSwapIntervalEXT");
+                        GLXDrawable drawable = glXGetCurrentDrawable();
+                        if (g.vsync) {
+                                glXSwapIntervalEXT(x11.dpy, drawable, 1);
+                        } else {
+                                glXSwapIntervalEXT(x11.dpy, drawable, 0);
+                        }
+			break;
+	    }
             case XK_l:
                 g.menu ^= 1;
                 break;
@@ -483,6 +543,98 @@ int Global::check_keys(XEvent *e)
 		}
 	}
 	return 0;
+}
+
+float Noise(int x, int y, int random)
+{
+    int n = x + y * 57 + random * 131;
+    n = (n<<13) ^ n;
+    return (1.0f - ( (n * (n * n * 15731 + 789221) +
+            1376312589)&0x7fffffff)* 0.000000000931322574615478515625f);
+}
+
+void SetNoise(float  *map)
+{
+  float temp[34][34];
+
+  int random=rand() % 5000;
+
+  for (int y=1; y<33; y++)
+  for (int x=1; x<33; x++)
+  {
+    temp[x][y] = 128.0f + Noise(x,  y,  random)*128.0f;
+  }
+
+  for (int x=1; x<33; x++)
+  {
+    temp[0][x] = temp[32][x];
+    temp[33][x] = temp[1][x];
+    temp[x][0] = temp[x][32];
+    temp[x][33] = temp[x][1];
+  }
+  temp[0][0] = temp[32][32];
+  temp[33][33] = temp[1][1];
+  temp[0][33] = temp[32][1];
+  temp[33][0] = temp[1][32];
+
+  for (int y=1; y<33; y++)
+    for (int x=1; x<33; x++)
+    {
+      float center = temp[x][y]/4.0f;
+      float sides = (temp[x+1][y] + temp[x-1][y] + temp[x][y+1] + temp[x][y-1])/8.0f;
+      float corners = (temp[x+1][y+1] + temp[x+1][y-1] + temp[x-1][y+1] + temp[x-1][y-1])/16.0f;
+
+      map[((x-1)*32) + (y-1)] = center + sides + corners;
+    }
+}
+float Interpolate(float x, float y, float  *map)
+{
+  int Xint = (int)x;
+  int Yint = (int)y;
+
+  float Xfrac = x - Xint;
+  float Yfrac = y - Yint;
+
+  int X0 = Xint % 32;
+  int Y0 = Yint % 32;
+  int X1 = (Xint + 1) % 32;
+  int Y1 = (Yint + 1) % 32;
+
+  float bot = map[X0*32 + Y0] + Xfrac * (map[X1*32 + Y0] - map[X0*32 + Y0]);
+  float top = map[X0*32 + Y1] + Xfrac * (map[X1*32 +  Y1] - map[X0*32 + Y1]);
+
+  return (bot + Yfrac * (top - bot));
+}
+
+void OverlapOctaves(float  *map32, float  *map256)
+{
+  for (int x=0; x<256*256; x++)
+  {
+    map256[x] = 0;
+  }
+
+  for (int octave=0; octave<4; octave++)
+    for (int x=0; x<256; x++)
+      for (int y=0; y<256; y++)
+      {
+        float scale = 1 / pow(2, 3-octave);
+        float noise = Interpolate(x*scale, y*scale , map32);
+
+        map256[(y*256) + x] += noise / pow(2, octave);
+      }
+}
+
+void ExpFilter(float  *map)
+{
+  float cover = 20.0f;
+  float sharpness = 0.95f;
+
+  for (int x=0; x<256*256; x++)
+  {
+    float c = map[x] - (255.0f-cover);
+    if (c<0)     c = 0;
+    map[x] = 255.0f - ((float)(pow(sharpness, c))*255.0f);
+  }
 }
 
 void identity33(Matrix m)
@@ -960,12 +1112,12 @@ void make_a_smoke()
 }
 void make_a_cloud()
 {
-    if (g.nclouds < MAX_SMOKES) {
+    if (g.nclouds < MAX_SMOKES * 6) {
     Smoke *c = &g.cloud[g.nclouds];
     c->pos[0] = rnd() * 5.0 - 2.5;
     c->pos[2] = rnd() * 5.0 - 2.5;
     c->pos[1] = rnd() * 0.1 + 0.1;
-    c->radius = rnd() * 1.0 + 0.5;
+    c->radius = (rnd() * 1.0 + 0.5)/4;
     c->n = rand() % 5 + 5;
     Flt angle = 0.0;
     Flt inc = (PI*2.0) / (Flt)c->n;
@@ -983,10 +1135,10 @@ void make_a_cloud()
 
 }
 void make_a_plane()
-{ 
-	float w = 0.5 * 0.5;
-	float d = 0.5 * 0.5;
-	float h = 2.0 * 0.5;
+{   
+    float w = 0.5 * 0.5;
+    float d = 0.5 * 0.5;
+    float h = 0.5 * 0.5;
 	//notice the normals being set
 	glBegin(GL_QUADS);
 		// top
@@ -997,34 +1149,47 @@ void make_a_plane()
 		glVertex3f( w, h, d);
 		// bottom
 		glNormal3f( 0.0f, -1.0f, 0.0f);
-		glVertex3f( w,-h, d);
-		glVertex3f(-w,-h, d);
-		glVertex3f(-w,-h,-d);
-		glVertex3f( w,-h,-d);
+		glVertex3f( w*2,-h, d*2);
+		glVertex3f(-w*2,-h, d*2);
+		glVertex3f(-w*2,-h,-d*2);
+		glVertex3f( w*2,-h,-d*2);
 		// front
 		glNormal3f( 0.0f, 0.0f, 1.0f);
 		glVertex3f( w, h, d);
 		glVertex3f(-w, h, d);
-		glVertex3f(-w,-h, d);
-		glVertex3f( w,-h, d);
+		glVertex3f(-w*2,-(((h*30)/2)-1.0), d*2);
+		glVertex3f(w*2,-(((h*30)/2)-1.0), d*2);
 		// back
 		glNormal3f( 0.0f, 0.0f, -1.0f);
-		glVertex3f( w,-h,-d);
-		glVertex3f(-w,-h,-d);
+		glVertex3f( w*2,-h,-d*2);
+		glVertex3f(-w*2,-h,-d*2);
 		glVertex3f(-w, h,-d);
 		glVertex3f( w, h,-d);
 		// left side
 		glNormal3f(-1.0f, 0.0f, 0.0f);
 		glVertex3f(-w, h, d);
 		glVertex3f(-w, h,-d);
-		glVertex3f(-w,-h,-d);
-		glVertex3f(-w,-h, d);
+		glVertex3f(-w*2,-h,-d*2);
+		glVertex3f(-w*2,-h, d*2);
 		// right side
 		glNormal3f( 1.0f, 0.0f, 0.0f);
 		glVertex3f( w, h,-d);
 		glVertex3f( w, h, d);
-		glVertex3f( w,-h, d);
-		glVertex3f( w,-h,-d);
+		glVertex3f( w*2,-h, d*2);
+		glVertex3f( w*2,-h,-d*2);
+        // front plane body top
+       /* glNormal3f( 0.0f, 0.0f, 1.0f);
+        glVertex3f( -w*2,-h, d*2);
+        glVertex3f( w*2,-h, d*2);
+        glVertex3f( w*2,-(((h*30)/2)-1.0), d*2 );
+        glVertex3f( -w*2,-(((h*30)/2)-1.0), d*2 );*/
+        // plane cockpit bottom
+        glColor3ub(255,255,255);
+        glNormal3f( 0.0f, 0.0f, 1.0f);
+        glVertex3f( -w*2,-(((h*30)/2)-1.0), d*2 );
+        glVertex3f( w*2,-(((h*30)/2)-1.0), d*2 );
+        glVertex3f( w*2,-(((h*30)/2)+1.0), d*2 );
+        glVertex3f( -w*2,-(((h*30)/2)+1.0), d*2 );
 		glEnd();
 	glEnd();
 }
@@ -1065,7 +1230,7 @@ void Global::physics()
             if (g.smoke[i].alpha < 1.0)
             g.smoke[i].alpha = 1.0;
         }
-        if (d * 3 > g.smoke[i].maxtime) {
+        if (d * 3 > (g.smoke[i].maxtime)) {
             //delete this smoke
             --g.nsmokes;
             g.smoke[i] = g.smoke[g.nsmokes];
@@ -1087,15 +1252,16 @@ void Global::physics()
         g.cloud[i].pos[0] += 0.015;
         g.cloud[i].pos[0] += ((g.cloud[i].pos[0]*0.24) * (rnd() * 0.075));
         //expand particle as it rises
-        g.cloud[i].radius += g.cloud[i].pos[0]*0.002;
+        //g.cloud[i].radius += g.cloud[i].pos[0]*0.002;
         //wind might blow particle
+        g.cloud[i].pos[1] += 0.015;
         if (g.cloud[i].pos[0] > 10.0) {
             //experiment here with different values
-            g.smoke[i].pos[1] -= rnd() * 0.1;
+            //g.smoke[i].pos[1] += rnd() * 0.01;
         }
         }
         //this is where a smoke particle will fade away as it lingers
-        int i=0;
+     /*   int i=0;
         while (i < g.nclouds) {
         struct timespec bt;
         clock_gettime(CLOCK_REALTIME, &bt);
@@ -1105,7 +1271,7 @@ void Global::physics()
             if (g.cloud[i].alpha < 1.0)
             g.cloud[i].alpha = 1.0;
         }
-        if (d * 3 > g.cloud[i].maxtime) {
+        if (d > g.cloud[i].maxtime) {
             //delete this smoke
             --g.nclouds;
             g.cloud[i] = g.cloud[g.nclouds];
@@ -1113,7 +1279,7 @@ void Global::physics()
         }
         ++i;
         
-    }
+    }*/
 
 }
  
@@ -1215,6 +1381,16 @@ void Global::render()
         //
         glMatrixMode(GL_PROJECTION);
         glLoadIdentity();
+        GLuint texture[256][256][3];
+        for(int i = 0; i < 256; i++) {
+            for(int j = 0; j < 256; j++) {
+                float color = background -> cloudmap256[i*256+j];
+                texture[i][j][0] = color;
+                texture[i][j][1] = color;
+                texture[i][j][2] = color;
+            }
+        }
+
         gluPerspective(45.0f, g.aspectRatio, 0.5f, 1000.0f);
         glMatrixMode(GL_MODELVIEW);
         glLoadIdentity();
@@ -1239,8 +1415,14 @@ void Global::render()
         r.center = 0;
         //ggprint8b(&r, 16, 0x00990000, "to start press 'm'");
         glPopAttrib();
+	char buff[50];
+        sprintf(buff, "fps: %d", g.fps);
+        ggprint8b(&r, 16, 0xffffffff, buff);
+	sprintf(buff, "vsync: %d", g.vsync);
+        ggprint8b(&r, 16, 0xffffffff, buff);
+
         if(g.cameraPosition[2] > (5.0-2.5))
-            g.cameraPosition[2] -= 0.01;
+            g.cameraPosition[2] -= 0.05;
         if(g.cameraPosition[2] <= (5.0-2.5)){
             r.bot = g.yres/2;
             r.left = g.xres/2 - g.xres/10;
