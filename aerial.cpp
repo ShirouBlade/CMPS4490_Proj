@@ -159,6 +159,8 @@ public:
     float offset[3];
     int intro;
     int fps;
+    Vec planePos;
+    Vec plane2Pos;
     ~Global() {
         if (smoke)
         delete [] smoke;
@@ -176,6 +178,7 @@ public:
 		//light is up high, right a little, toward a little
 		MakeVector(100.0f, 240.0f, 40.0f, lightPosition);
 		lightPosition[3] = 1.0f;
+        MakeVector(0.0, 1.0, 8.0, plane2Pos);
 		//init_opengl();
         nsmokes = 0;
         nclouds = 0;
@@ -466,25 +469,25 @@ int Global::check_keys(XEvent *e)
 				//g.cameraPosition[2] -= 1.0;
                 // add the directio vector to the camera position vector
                 for(int i=0; i < 3; i++){
-                    g.cameraPosition[i] += g.cameraDir[i] * speed;
+                    g.plane2Pos[i] += g.cameraDir[i] * speed;
                 }
 				break;
 			case XK_b:
 				//g.cameraPosition[2] += 1.0;
                 for(int i=0; i < 3; i++){
-                    g.cameraPosition[i] -= g.cameraDir[i] * speed;
+                    g.plane2Pos[i] -= g.cameraDir[i] * speed;
                 }
 				break;
             case XK_w:
                 //g.cameraPosition[1] += 0.2;
                 for(int i=0; i < 3; i++){
-                    g.cameraPosition[i] += g.cameraDir[i] * speed;
+                    g.plane2Pos[i] += g.cameraDir[i] * speed;
                 }
                 break;
             case XK_s:
                 //g.cameraPosition[1] -= 0.2;
                 for(int i=0; i < 3; i++){
-                    g.cameraPosition[i] -= g.cameraDir[i] * speed;
+                    g.plane2Pos[i] -= g.cameraDir[i] * speed;
                 }
                 break;
             case XK_a:
@@ -492,7 +495,7 @@ int Global::check_keys(XEvent *e)
                 Vec left;
                 crossProduct(g.cameraDir, up, left);
                 for(int i = 0; i < 3; i++){
-                    g.cameraPosition[i] += left[i] * dist;
+                    g.plane2Pos[i] += left[i] * dist;
                 }
                 break;
             case XK_d:
@@ -500,7 +503,7 @@ int Global::check_keys(XEvent *e)
                 Vec right;
                 crossProduct(g.cameraDir, up, right);
                 for(int i = 0; i < 3; i++){
-                    g.cameraPosition[i] += right[i] * dist;
+                    g.plane2Pos[i] += right[i] * dist;
                 }
                 break;
             case XK_q:
@@ -513,10 +516,10 @@ int Global::check_keys(XEvent *e)
                 system("convert -loop 0 -coalesce -layers OptimizeFrame -delay 20 ./images/img*.jpg abc.gif");
                 break;
             case XK_space:
-                g.cameraPosition[1] += 0.2;
+                g.plane2Pos[1] += 0.2;
                 break;
             case XK_Tab:
-                g.cameraPosition[1] -= 0.2;
+                g.plane2Pos[1] -= 0.2;
                 break;
             case XK_p:
                 screenShot();
@@ -1134,6 +1137,7 @@ void make_a_cloud()
     }
 
 }
+
 void make_a_plane()
 {   
     float w = 0.5 * 0.5;
@@ -1192,6 +1196,163 @@ void make_a_plane()
         glVertex3f( -w*2,-(((h*30)/2)+1.0), d*2 );
 		glEnd();
 	glEnd();
+}
+void make_a_plane2()
+{  
+    int n = 10;
+    float rad = 0.5;
+    float len = 0.5 * 0.5 * 30;
+   const int MAX_POINTS = 100;
+        static float pts[MAX_POINTS][3];
+        static int firsttime = 1;
+        if (firsttime) {
+                firsttime = 0;
+                double angle = 0.0;
+                double inc = (3.1415926535 * 2.0) / (double)n;
+                for (int i=0; i<n; i++) {
+                        pts[i][0] = cos(angle) * rad;
+                        pts[i][2] = sin(angle) * rad;
+                        pts[i][1] = 0.0f;
+                        angle += inc;
+                }
+        }
+        glBegin(GL_QUADS);
+        // Plane body 
+                for (int i=0; i<n; i++) {
+                        int j = (i+1) % n;
+                        glNormal3f(pts[i][0], 0.0, pts[i][2]);
+                        glVertex3f(pts[i][0], 0.0, pts[i][2]);
+                        glVertex3f(pts[i][0], len, pts[i][2]);
+                        glNormal3f(pts[j][0], 0.0, pts[j][2]);
+                        glVertex3f(pts[j][0], len, pts[j][2]);
+                        glVertex3f(pts[j][0], 0.0, pts[j][2]);
+                }
+		// Plane body top
+		for (int i=0; i<n+1; i++) {
+                        int j = (i+1) % n;
+                        glNormal3f(0.0, 1.0, 0.0);
+                        glVertex3f(0.0, len, 0.0);
+			glVertex3f(pts[j][0], len, pts[j][2]);
+			glVertex3f(pts[i][0], len, pts[i][2]);
+			glVertex3f(0.0, len, 0.0);
+                }
+        // Tail Body
+		for (int i=0; i<n+1; i++) {
+                        int j = (i+1) % n;
+                        glNormal3f(pts[i][0], pts[i][2], pts[i][2]);
+                        glVertex3f(0.5, -3.0, 0.0);
+                        glVertex3f(pts[j][0], 0.0, pts[j][2]);
+                        glVertex3f(pts[i][0], 0.0, pts[i][2]);
+                        glVertex3f(0.5, -3.0, 0.0);
+                }
+            // Wings
+    
+        glNormal3f(1.0, 0.0, 0.0);
+        // Right wing top
+        glColor3f(0.5, 0.5, 0.5); // Gray color for the wings
+        glVertex3f(0.25, len/2+2.5, 0.0); // Wing root
+        glVertex3f(0.25, len/2-1.0, 0.0); // Wing root
+        glVertex3f(0.0, len/2-2.5, 5.0); // Wing edge
+        glVertex3f(0.0, len/2-1.0, 5.0);
+        glNormal3f(-1.0, 0.0, 0.0);
+        // Right wing bottom
+        glColor3f(0.5, 0.5, 0.5); // Gray color for the wings
+        glVertex3f(-0.25, len/2+2.5, 0.0); // Wing root
+        glVertex3f(-0.25, len/2-1.0, 0.0); // Wing root
+        glVertex3f(0.0, len/2-2.5, 5.0); // Wing edge
+        glVertex3f(0.0, len/2-1.0, 5.0);
+        // Right wing right side bottom-top
+        glNormal3f(0.5, 1.0, 0.0);
+        glColor3f(1.0, 0.0, 0.0); // red color for the wings
+        glVertex3f(0.0, len/2-1.5, 0.0); // Wing root
+        glVertex3f(0.25, len/2-1.0, 0.0); // Wing edge
+        glVertex3f(0.0, len/2 - 2.5, 5.0);
+        glVertex3f(0.0, len/2-2.5, 5.0);
+        // Right wing right side bottom-bottom
+        glNormal3f(-0.5, 1.0, 0.0);
+        glColor3f(1.0, 0.0, 0.0); // red color for the wings
+        glVertex3f(0.0, len/2-1.5, 0.0); // Wing root
+        glVertex3f(-0.25, len/2-1.0, 0.0); // Wing edge
+        glVertex3f(0.0, len/2 - 2.5, 5.0);
+        glVertex3f(0.0, len/2-2.5, 5.0);
+        // Right wing right side top-top
+        glNormal3f(0.0, 1.0, 0.0);
+        glColor3f(1.0, 0.0, 0.0); // red color for the wings
+        glVertex3f(-0.25, len/2+2.5, 0.0); // Wing root
+        glVertex3f(0.25, len/2+2.5, 0.0); // Wing edge
+        glVertex3f(0.0, len/2-1.0, 5.0);
+        glVertex3f(0.0, len/2-1.0, 5.0);
+        glNormal3f(1.0, 0.0, 0.0);
+        // Left wing top
+        glColor3f(0.5, 0.5, 0.5); // Gray color for the wings
+        glVertex3f(0.25, len/2+2.5, 0.0); // Wing root
+        glVertex3f(0.25, len/2-1.0, 0.0); // Wing root
+        glVertex3f(0.0, len/2-2.5, -5.0); // Wing edge
+        glVertex3f(0.0, len/2-1.0, -5.0);
+        glNormal3f(-1.0, 0.0, 0.0);
+        // Left wing bottom
+        glColor3f(0.5, 0.5, 0.5); // Gray color for the wings
+        glVertex3f(-0.25, len/2+2.5, 0.0); // Wing root
+        glVertex3f(-0.25, len/2-1.0, 0.0); // Wing root
+        glVertex3f(0.0, len/2-2.5, -5.0); // Wing edge
+        glVertex3f(0.0, len/2-1.0, -5.0);
+        // Left wing right side bottom-top
+        glNormal3f(0.5, 1.0, 0.0);
+        glColor3f(1.0, 0.0, 0.0); // red color for the wings
+        glVertex3f(0.0, len/2-1.5, 0.0); // Wing root
+        glVertex3f(0.25, len/2-1.0, 0.0); // Wing edge
+        glVertex3f(0.0, len/2 - 2.5, -5.0);
+        glVertex3f(0.0, len/2-2.5, -5.0);
+        // Left wing right side bottom-bottom
+        glNormal3f(-0.5, 1.0, 0.0);
+        glColor3f(1.0, 0.0, 0.0); // red color for the wings
+        glVertex3f(0.0, len/2-1.5, 0.0); // Wing root
+        glVertex3f(-0.25, len/2-1.0, 0.0); // Wing edge
+        glVertex3f(0.0, len/2 - 2.5, -5.0);
+        glVertex3f(0.0, len/2-2.5, -5.0);
+        // Left wing right side top-top
+        glNormal3f(0.0, 1.0, 0.0);
+        glColor3f(1.0, 0.0, 0.0); // red color for the wings
+        glVertex3f(-0.25, len/2+2.5, 0.0); // Wing root
+        glVertex3f(0.25, len/2+2.5, 0.0); // Wing edge
+        glVertex3f(0.0, len/2-1.0, -5.0);
+        glVertex3f(0.0, len/2-1.0, -5.0);
+
+        glColor3f(0.25, 0.25, 0.25);
+        glNormal3f(1.0, 0.0, 0.0);
+        glVertex3f(0.25, 0.0, 0.0);
+        glVertex3f(0.25, -1.5, 1.5);
+        glVertex3f(0.25, -1.5, 1.5);
+        glVertex3f(0.25, -1.5, 0.0);
+        glNormal3f(1.0, 0.0, 0.0);
+        glVertex3f(0.25, 0.0, 0.0);
+        glVertex3f(0.25, -1.5, -1.5);
+        glVertex3f(0.25, -1.5, -1.5);
+        glVertex3f(0.25, -1.5, 0.0);
+        glNormal3f(0.0, 0.0, 1.0);
+        glVertex3f(0.25, 0.0, 0.0);
+        glVertex3f(1.5, -1.5, 0.0);
+        glVertex3f(1.5, -1.5, 0.0);
+        glVertex3f(0.25, -1.5, 0.0);
+        
+        glNormal3f(0.0, 1.0, 0.0);
+        glVertex3f(0.25, 0.0, 0.0);
+        glVertex3f(0.25, -1.5, 1.5);
+        glVertex3f(0.30, 0.0, 0.0);
+        glVertex3f(0.25, -1.5, 1.5);
+
+
+
+
+    //glVertex3f(0.0, len / 2, 0.0); // Wing root
+    //glVertex3f(1.0, len / 2, 0.0); // Wing tip
+    //glVertex3f(0.0, len / 2, 5.0); // Wing edge
+        
+    //glColor3f(0.5, 0.5, 0.5); // Gray color for the tail
+    //glVertex3f(0.0, len, 0.0); // Tail root
+    //glVertex3f(0.0, len + 3.0, 0.0); // Tail tip
+    //glVertex3f(0.0, len, 5.0); // Tail edge
+    glEnd();
 }
 
 void Global::physics()
@@ -1305,11 +1466,14 @@ void Global::render()
         glLoadIdentity();
         //for documentation...
         Vec up = { 0.0, 1.0, 0.0 };
+        for(int i = 0; i < 3; i++){
+            g.cameraPosition[i] = g.plane2Pos[i];
+        }
         gluLookAt(
-            g.cameraPosition[0], g.cameraPosition[1], g.cameraPosition[2],
-            g.cameraPosition[0] + g.cameraDir[0], 
-            g.cameraPosition[1] + g.cameraDir[1], 
-            g.cameraPosition[2] + g.cameraDir[2],
+            g.cameraPosition[0], g.cameraPosition[1]+0.5, g.cameraPosition[2]+7.5f,
+            g.plane2Pos[0] + g.cameraDir[0], 
+            g.plane2Pos[1] + g.cameraDir[1], 
+            g.plane2Pos[2] + g.cameraDir[2],
             up[0], up[1], up[2]);
         glLightfv(GL_LIGHT0, GL_POSITION, g.lightPosition);
         //
@@ -1332,9 +1496,14 @@ void Global::render()
         cube(0.5, 0.5, 4.0);
         glPopMatrix();
 
+        //glPushMatrix();
+       // glTranslatef(g.cameraDir[0], g.cameraDir[1], g.cameraDir[2]-5);
+       // make_a_plane();
+       // glPopMatrix();
         glPushMatrix();
-        glTranslatef(g.cameraDir[0], g.cameraDir[1], g.cameraDir[2]-5);
-        make_a_plane();
+        glTranslatef(g.plane2Pos[0], g.plane2Pos[1], g.plane2Pos[2]);
+	glRotatef(90.0, 0.0, 0.0, 1.0);
+    make_a_plane2();
         glPopMatrix();
         
         //
