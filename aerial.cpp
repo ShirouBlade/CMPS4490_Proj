@@ -1,5 +1,5 @@
 //program: proj_prototype.cpp
-//author:  Danny Simpson
+//author:  Danny Simpson, Aldrin Amistoso
 //date:    April 02, 2024
 //
 //
@@ -132,14 +132,10 @@ extern double timeDiff(struct timespec *start, struct timespec *end);
 extern void timeCopy(struct timespec *dest, struct timespec *source);
 //-----------------------------------------------------------------------------
 
-
-
-
-
 class Global {
 public:
 	int xres, yres;
-    int menu;
+    int menu, pause, optionSelected;
 	Flt aspectRatio;
 	Vec cameraPosition;
     float initialz;
@@ -171,6 +167,9 @@ public:
 		//constructor
 		xres=640;
 		yres=480;
+        menu = 0;
+        pause = 0; // 0 -> Game not paused, 1 -> Game paused
+        optionSelected = 0; // 0 - Resume, 1 - Options, 2 - Main Menu
 		aspectRatio = (GLfloat)xres / (GLfloat)yres;
 		MakeVector(0.0, 1.0, 8.0, cameraPosition);
         initialz = cameraPosition[2];
@@ -403,6 +402,35 @@ int Global::check_keys(XEvent *e)
 	//Was there input from the keyboard?
 	if (e->type == KeyPress) {
 		int key = (XLookupKeysym(&e->xkey, 0) & 0x0000ffff);
+        if (key == XK_p) {
+            pause ^= 1; // Toggle pause state
+            return 0;
+        }
+        if (pause) {
+            if (key == XK_Down) {
+                optionSelected = (optionSelected + 1) % 3; // Cycle through options
+            }
+            if (key == XK_Up) {
+                optionSelected = (optionSelected + 2) % 3; // Cycle through options 
+            }
+            if (key == XK_Return || key == XK_space) {
+                switch (optionSelected) {
+                    case 0:
+                        pause = 0; // Resume game
+                        break;
+                    case 1:
+                        // Option menu
+                        break;
+                    case 2: // Main menu
+                        {
+                            gamestart = 0;
+                            pause = 0;
+                            break;
+                        }
+                }
+            }
+            return 0; // ignore other keys when paused
+        }
         float speed = 0.5;
         float dist = 0.0;
         Vec up = {0.0, 1.0, 0.0};
@@ -521,9 +549,7 @@ int Global::check_keys(XEvent *e)
             case XK_Tab:
                 g.plane2Pos[1] -= 0.2;
                 break;
-            case XK_p:
-                screenShot();
-                break;
+            
 	    case XK_v: {
 		       g.vsync ^= 1;
 		       static PFNGLXSWAPINTERVALEXTPROC glXSwapIntervalEXT = NULL;
@@ -1448,6 +1474,46 @@ void Global::physics()
 
 void Global::render()
 {
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    // Check if the game is paused
+    if (pause) {
+        // Setup for 2D rendering
+        glViewport(0, 0, xres, yres);
+        glMatrixMode(GL_PROJECTION);
+        glLoadIdentity();
+        gluOrtho2D(0, xres, 0, yres);
+        glMatrixMode(GL_MODELVIEW);
+        glLoadIdentity();
+
+        // Disable lighting for clear text rendering
+        glDisable(GL_LIGHTING);
+        glDisable(GL_DEPTH_TEST);
+
+        Rect r;
+        r.bot = yres / 2 + 50;
+        r.left = xres / 2;
+        r.center = 1;
+        ggprint12(&r, 16, 0x00ff0000, "Game Paused");
+
+        // Options for the pause menu
+        const char *options[] = { "Resume", "Options", "Main Menu" };
+        for (int i = 0; i < 3; i++) {
+            r.bot -= 20;
+            unsigned int color;
+            if (optionSelected == i) {
+                color = 0x00ff0000; // selected: red
+            } else {
+                color = 0xffffffff; // nonselected: white
+            }
+            ggprint8b(&r, 16, color, options[i]);
+        }
+
+        // Re-enable anything disabled before returning
+        glEnable(GL_LIGHTING);
+        glEnable(GL_DEPTH_TEST);
+        return; 
+    }
     if(g.gamestart > 0){
         static int justonce = 1;
         if(justonce == 1){
@@ -1456,6 +1522,7 @@ void Global::render()
         }
         Rect r;
         glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
+        
         //
         //3D mode
         //
@@ -1502,8 +1569,8 @@ void Global::render()
        // glPopMatrix();
         glPushMatrix();
         glTranslatef(g.plane2Pos[0], g.plane2Pos[1], g.plane2Pos[2]);
-	glRotatef(90.0, 0.0, 0.0, 1.0);
-    make_a_plane2();
+	    glRotatef(90.0, 0.0, 0.0, 1.0);
+        make_a_plane2();
         glPopMatrix();
         
         //
@@ -1584,10 +1651,10 @@ void Global::render()
         r.center = 0;
         //ggprint8b(&r, 16, 0x00990000, "to start press 'm'");
         glPopAttrib();
-	char buff[50];
+	    char buff[50];
         sprintf(buff, "fps: %d", g.fps);
         ggprint8b(&r, 16, 0xffffffff, buff);
-	sprintf(buff, "vsync: %d", g.vsync);
+	    sprintf(buff, "vsync: %d", g.vsync);
         ggprint8b(&r, 16, 0xffffffff, buff);
 
         if(g.cameraPosition[2] > (5.0-2.5))
