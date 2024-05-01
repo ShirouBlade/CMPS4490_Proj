@@ -1,5 +1,5 @@
 //program: proj_prototype.cpp
-//author:  Danny Simpson, Aldrin Amistoso
+//author:  Danny Simpson
 //date:    April 02, 2024
 //
 //
@@ -26,6 +26,7 @@
 
 typedef float Flt;
 typedef Flt Vec[3];
+typedef Flt Vec4[4];
 typedef Flt Matrix[4][4];
 
 
@@ -132,10 +133,14 @@ extern double timeDiff(struct timespec *start, struct timespec *end);
 extern void timeCopy(struct timespec *dest, struct timespec *source);
 //-----------------------------------------------------------------------------
 
+
+
+
+
 class Global {
 public:
 	int xres, yres;
-    int menu, pause, optionSelected;
+    int menu;
 	Flt aspectRatio;
 	Vec cameraPosition;
     float initialz;
@@ -157,6 +162,9 @@ public:
     int fps;
     Vec planePos;
     Vec plane2Pos;
+    Vec planeAngle;
+    Vec plane2Dir;
+    Vec4 plane2Joystick;
     ~Global() {
         if (smoke)
         delete [] smoke;
@@ -167,13 +175,12 @@ public:
 		//constructor
 		xres=640;
 		yres=480;
-        menu = 0;
-        pause = 0; // 0 -> Game not paused, 1 -> Game paused
-        optionSelected = 0; // 0 - Resume, 1 - Options, 2 - Main Menu
 		aspectRatio = (GLfloat)xres / (GLfloat)yres;
 		MakeVector(0.0, 1.0, 8.0, cameraPosition);
         initialz = cameraPosition[2];
         MakeVector(0.0, 0.0, -1.0, cameraDir);
+        MakeVector(0.0, 0.0, 0.0, plane2Dir);
+        MakeVector(0.0, 0.0, 0.0, planeAngle);
 		//light is up high, right a little, toward a little
 		MakeVector(100.0f, 240.0f, 40.0f, lightPosition);
 		lightPosition[3] = 1.0f;
@@ -402,38 +409,10 @@ int Global::check_keys(XEvent *e)
 	//Was there input from the keyboard?
 	if (e->type == KeyPress) {
 		int key = (XLookupKeysym(&e->xkey, 0) & 0x0000ffff);
-        if (key == XK_p) {
-            pause ^= 1; // Toggle pause state
-            return 0;
-        }
-        if (pause) {
-            if (key == XK_Down) {
-                optionSelected = (optionSelected + 1) % 3; // Cycle through options
-            }
-            if (key == XK_Up) {
-                optionSelected = (optionSelected + 2) % 3; // Cycle through options 
-            }
-            if (key == XK_Return || key == XK_space) {
-                switch (optionSelected) {
-                    case 0:
-                        pause = 0; // Resume game
-                        break;
-                    case 1:
-                        // Option menu
-                        break;
-                    case 2: // Main menu
-                        {
-                            gamestart = 0;
-                            pause = 0;
-                            break;
-                        }
-                }
-            }
-            return 0; // ignore other keys when paused
-        }
         float speed = 0.5;
         float dist = 0.0;
         Vec up = {0.0, 1.0, 0.0};
+        const float sensitivity = 0.1f;
         //int qdown = 0;
 		switch(key) {
 			case XK_1:
@@ -449,6 +428,11 @@ int Global::check_keys(XEvent *e)
                     identity33(m);
                     yy_transform(v, m);
                     trans_vector(m, g.cameraDir, g.cameraDir);
+                    //trans_vector(m, g.plane2Dir, g.plane2Dir);
+                    if(g.planeAngle[0] < 90.0f)
+                        g.planeAngle[0]--;
+                    if(g.planeAngle[1] < 90.0f)
+                        g.planeAngle[1]++;
                 }
 				break;
 			case XK_Left:
@@ -458,8 +442,12 @@ int Global::check_keys(XEvent *e)
                     Matrix m;
                     identity33(m);
                     yy_transform(v, m);
-
                     trans_vector(m, g.cameraDir, g.cameraDir);
+                    //trans_vector(m, g.plane2Dir, g.plane2Dir);
+                    if(g.planeAngle[0] > -90.0f)
+                        g.planeAngle[0]++;
+                    if(g.planeAngle[1] > -90.0f)
+                        g.planeAngle[1]--;
                 }
 				break;
 			case XK_Up:
@@ -473,8 +461,13 @@ int Global::check_keys(XEvent *e)
                     //yy_transform(v, m);
                     Vec x;
                     crossProduct(g.cameraDir, up, x);
+                    g.plane2Dir[0] = g.cameraDir[0];
+                    g.plane2Dir[1] = g.cameraDir[1];
+                    g.plane2Dir[2] = g.cameraDir[2];
                     matrixFromAxisAngle(x, 0.1, m);
                     trans_vector(m, g.cameraDir, g.cameraDir);
+                    //trans_vector(m, g.plane2Dir, g.plane2Dir);
+                    g.planeAngle[2]++;
                 }
 				break;
 			case XK_Down:
@@ -486,11 +479,16 @@ int Global::check_keys(XEvent *e)
                     //yy_transform(v, m);
                     Vec x;
                     crossProduct(g.cameraDir, up, x);
+                    g.plane2Dir[0] = g.cameraDir[0];
+                    g.plane2Dir[1] = g.cameraDir[1];
+                    g.plane2Dir[2] = g.cameraDir[2];
                     x[0] = -x[0];
                     x[1] = -x[1];
                     x[2] = -x[2];
                     matrixFromAxisAngle(x, 0.1, m);
                     trans_vector(m, g.cameraDir, g.cameraDir);
+                    //trans_vector(m, g.plane2Dir, g.plane2Dir);
+                    g.planeAngle[2]--;
                 }
 				break;
 			case XK_f:
@@ -498,24 +496,32 @@ int Global::check_keys(XEvent *e)
                 // add the directio vector to the camera position vector
                 for(int i=0; i < 3; i++){
                     g.plane2Pos[i] += g.cameraDir[i] * speed;
+                    g.cameraPosition[i] += g.cameraDir[i] * speed;
                 }
 				break;
 			case XK_b:
 				//g.cameraPosition[2] += 1.0;
                 for(int i=0; i < 3; i++){
                     g.plane2Pos[i] -= g.cameraDir[i] * speed;
+                    g.cameraPosition[i] -= g.cameraDir[i] * speed;
                 }
 				break;
             case XK_w:
                 //g.cameraPosition[1] += 0.2;
                 for(int i=0; i < 3; i++){
                     g.plane2Pos[i] += g.cameraDir[i] * speed;
+                    g.cameraPosition[i] += g.cameraDir[i] * speed;
+                    if(g.planeAngle[i] > 0.0f)
+                        g.planeAngle[i]--;
+                    if(g.planeAngle[i] < 0.0f)
+                        g.planeAngle[i]++;
                 }
                 break;
             case XK_s:
                 //g.cameraPosition[1] -= 0.2;
                 for(int i=0; i < 3; i++){
                     g.plane2Pos[i] -= g.cameraDir[i] * speed;
+                    g.cameraPosition[i] -= g.cameraDir[i] * speed;
                 }
                 break;
             case XK_a:
@@ -524,7 +530,9 @@ int Global::check_keys(XEvent *e)
                 crossProduct(g.cameraDir, up, left);
                 for(int i = 0; i < 3; i++){
                     g.plane2Pos[i] += left[i] * dist;
+                    g.cameraPosition[i] += left[i] * dist;
                 }
+                g.planeAngle[0]--;
                 break;
             case XK_d:
                 dist = 1.0;
@@ -532,7 +540,9 @@ int Global::check_keys(XEvent *e)
                 crossProduct(g.cameraDir, up, right);
                 for(int i = 0; i < 3; i++){
                     g.plane2Pos[i] += right[i] * dist;
+                    g.cameraPosition[i] += right[i] * dist;
                 }
+                g.planeAngle[0]++;
                 break;
             case XK_q:
                 //qdown ^= qdown;
@@ -545,11 +555,15 @@ int Global::check_keys(XEvent *e)
                 break;
             case XK_space:
                 g.plane2Pos[1] += 0.2;
+                g.cameraPosition[1] += 0.2;
                 break;
             case XK_Tab:
                 g.plane2Pos[1] -= 0.2;
+                g.cameraPosition[1] -= 0.2;
                 break;
-            
+            case XK_p:
+                screenShot();
+                break;
 	    case XK_v: {
 		       g.vsync ^= 1;
 		       static PFNGLXSWAPINTERVALEXTPROC glXSwapIntervalEXT = NULL;
@@ -1474,46 +1488,6 @@ void Global::physics()
 
 void Global::render()
 {
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-    // Check if the game is paused
-    if (pause) {
-        // Setup for 2D rendering
-        glViewport(0, 0, xres, yres);
-        glMatrixMode(GL_PROJECTION);
-        glLoadIdentity();
-        gluOrtho2D(0, xres, 0, yres);
-        glMatrixMode(GL_MODELVIEW);
-        glLoadIdentity();
-
-        // Disable lighting for clear text rendering
-        glDisable(GL_LIGHTING);
-        glDisable(GL_DEPTH_TEST);
-
-        Rect r;
-        r.bot = yres / 2 + 50;
-        r.left = xres / 2;
-        r.center = 1;
-        ggprint12(&r, 16, 0x00ff0000, "Game Paused");
-
-        // Options for the pause menu
-        const char *options[] = { "Resume", "Options", "Main Menu" };
-        for (int i = 0; i < 3; i++) {
-            r.bot -= 20;
-            unsigned int color;
-            if (optionSelected == i) {
-                color = 0x00ff0000; // selected: red
-            } else {
-                color = 0xffffffff; // nonselected: white
-            }
-            ggprint8b(&r, 16, color, options[i]);
-        }
-
-        // Re-enable anything disabled before returning
-        glEnable(GL_LIGHTING);
-        glEnable(GL_DEPTH_TEST);
-        return; 
-    }
     if(g.gamestart > 0){
         static int justonce = 1;
         if(justonce == 1){
@@ -1522,7 +1496,6 @@ void Global::render()
         }
         Rect r;
         glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
-        
         //
         //3D mode
         //
@@ -1533,14 +1506,11 @@ void Global::render()
         glLoadIdentity();
         //for documentation...
         Vec up = { 0.0, 1.0, 0.0 };
-        for(int i = 0; i < 3; i++){
-            g.cameraPosition[i] = g.plane2Pos[i];
-        }
         gluLookAt(
-            g.cameraPosition[0], g.cameraPosition[1]+0.5, g.cameraPosition[2]+7.5f,
-            g.plane2Pos[0] + g.cameraDir[0], 
-            g.plane2Pos[1] + g.cameraDir[1], 
-            g.plane2Pos[2] + g.cameraDir[2],
+            g.cameraPosition[0], g.cameraPosition[1]+1.5, g.cameraPosition[2]+7.5f,
+            g.plane2Pos[0], 
+            g.plane2Pos[1], 
+            g.plane2Pos[2]-1.0,
             up[0], up[1], up[2]);
         glLightfv(GL_LIGHT0, GL_POSITION, g.lightPosition);
         //
@@ -1569,8 +1539,12 @@ void Global::render()
        // glPopMatrix();
         glPushMatrix();
         glTranslatef(g.plane2Pos[0], g.plane2Pos[1], g.plane2Pos[2]);
-	    glRotatef(90.0, 0.0, 0.0, 1.0);
-        make_a_plane2();
+	glRotatef(90.0, 0.0, 0.0, 1.0);
+    glRotatef(-90.0, 1.0, 0.0, 0.0);
+    glRotatef(g.planeAngle[2], 0.0, 0.0, 1.0);
+    glRotatef(g.planeAngle[1], 0.0, 1.0, 0.0);
+    glRotatef(g.planeAngle[0], 1.0, 0.0, 0.0);
+    make_a_plane2();
         glPopMatrix();
         
         //
@@ -1651,10 +1625,10 @@ void Global::render()
         r.center = 0;
         //ggprint8b(&r, 16, 0x00990000, "to start press 'm'");
         glPopAttrib();
-	    char buff[50];
+	char buff[50];
         sprintf(buff, "fps: %d", g.fps);
         ggprint8b(&r, 16, 0xffffffff, buff);
-	    sprintf(buff, "vsync: %d", g.vsync);
+	sprintf(buff, "vsync: %d", g.vsync);
         ggprint8b(&r, 16, 0xffffffff, buff);
 
         if(g.cameraPosition[2] > (5.0-2.5))
