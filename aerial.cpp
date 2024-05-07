@@ -1,10 +1,10 @@
-//program: proj_prototype.cpp
-//author:  Danny Simpson
+//program: aerial.cpp
+//author:  Danny Simpson, Aldrin Amistoso
 //date:    April 02, 2024
 //
 //
 //
-//Prototype for aerial obstacle course.
+// Aerial obstacle course.
 //
 #include <stdio.h>
 #include <stdlib.h>
@@ -145,7 +145,7 @@ extern void timeCopy(struct timespec *dest, struct timespec *source);
 class Global {
 public:
 	int xres, yres;
-    int menu, pause, optionSelected;
+    int menu, pause, optionSelected, gameover;
 	Flt aspectRatio;
 	Vec cameraPosition;
     float initialz;
@@ -192,6 +192,7 @@ public:
         menu = 0;
         pause = 0; // 0 -> Game not paused, 1 -> Game paused
         optionSelected = 0; // 0 - Resume, 1 - Options, 2 - Main Menu
+        gameover = 0;
 		aspectRatio = (GLfloat)xres / (GLfloat)yres;
 		MakeVector(0.0, 2.5, 15.5, cameraPosition);
         initialz = cameraPosition[2];
@@ -223,6 +224,7 @@ public:
 	int check_keys(XEvent *e);
 	void physics();
 	void render();
+    void restart_game();
 } g;
 // Function to find
 // cross product of two vector array.
@@ -425,19 +427,37 @@ void trans_vector(Matrix mat, const Vec in, Vec out);
 void matrixFromAxisAngle(const Vec v, Flt ang, Matrix m);
 void screenShot();
 
+void Global::restart_game() {
+    gamestart = 1;
+    gameover = 0;
+    // Reset plane position and other states
+    MakeVector(0.0, 1.0, 8.0, plane2Pos); 
+    MakeVector(0.0, 0.0, 0.0, planeAngle); 
+    clock_gettime(CLOCK_REALTIME, &timeStart); // Restart game time
+    nsmokes = 0; 
+    nclouds = 0; 
+}
+
 int Global::check_keys(XEvent *e)
 {
 	//Was there input from the keyboard?
 	if (e->type == KeyPress) {
 		int key = (XLookupKeysym(&e->xkey, 0) & 0x0000ffff);
+        if (gameover) {
+            if (key == XK_r) {
+                restart_game();
+                return 0;
+            }
+        }
+
         if(key == XK_p){
             pause ^= 1;
             return 0;
         }
         float speed = 0.5;
-        float dist = 0.0;
+        //float dist = 0.0;
         Vec up = {0.0, 1.0, 0.0};
-        const float sensitivity = 0.1f;
+        //const float sensitivity = 0.1f;
         //int qdown = 0;
         if (key == XK_p) {
             pause ^= 1; // Toggle pause state
@@ -987,6 +1007,8 @@ void tube(int n, float rad, float len)
 			glVertex3f(pts[j][0], 0.0, pts[j][2]);
 		}
 	glEnd();
+
+    
 }
 
 
@@ -1478,92 +1500,82 @@ void make_a_plane2()
     glEnd();
 }
 
+
 void Global::physics()
 {
 //	g.cameraPosition[2] -= 0.1;
 //	g.cameraPosition[0] = 1.0 + sin(g.cameraPosition[2]*0.3);
-    if(g.gamestart > 0){
+    // Plane ground collision
+    if (g.plane2Pos[1] <= 0.0) {
+        // Plane touches ground
+        g.plane2Pos[1] = 0.0;
+        g.gameover = 1;
+    }
+
+    if (g.gamestart > 0){
         clock_gettime(CLOCK_REALTIME, &g.smokeTime);
         double d = timeDiff(&g.smokeStart, &g.smokeTime);
+
+
         if (d > 0.01) {
-        //time to make another smoke particle
-        make_a_smoke();
-        timeCopy(&g.smokeStart, &g.smokeTime);
+            //time to make another smoke particle
+            make_a_smoke();
+            timeCopy(&g.smokeStart, &g.smokeTime);
         }
         //move smoke particles
         for (int i=0; i<g.nsmokes; i++) {
-        //smoke rising
-        g.smoke[i].pos[1] += 0.015;
-        g.smoke[i].pos[1] += ((g.smoke[i].pos[1]*0.24) * (rnd() * 0.075));
-        //expand particle as it rises
-        g.smoke[i].radius += g.smoke[i].pos[1]*0.002;
-        //wind might blow particle
-        if (g.smoke[i].pos[1] > 10.0) {
-            //experiment here with different values
-            g.smoke[i].pos[0] -= rnd() * 0.1;
-        }
+            //smoke rising
+            g.smoke[i].pos[1] += 0.015;
+            g.smoke[i].pos[1] += ((g.smoke[i].pos[1]*0.24) * (rnd() * 0.075));
+            //expand particle as it rises
+            g.smoke[i].radius += g.smoke[i].pos[1]*0.002;
+            //wind might blow particle
+            if (g.smoke[i].pos[1] > 10.0) {
+                //experiment here with different values
+                g.smoke[i].pos[0] -= rnd() * 0.1;
+            }
         }
         //this is where a smoke particle will fade away as it lingers
         int i=0;
         while (i < g.nsmokes) {
-        struct timespec bt;
-        clock_gettime(CLOCK_REALTIME, &bt);
-        double d = timeDiff(&g.smoke[i].tstart, &bt);
-        if (d > g.smoke[i].maxtime - 3.0) {
-            g.smoke[i].alpha *= 0.95;
-            if (g.smoke[i].alpha < 1.0)
-            g.smoke[i].alpha = 1.0;
-        }
-        if (d * 3 > (g.smoke[i].maxtime)) {
-            //delete this smoke
-            --g.nsmokes;
-            g.smoke[i] = g.smoke[g.nsmokes];
-            continue;
-        }
-        ++i;
+            struct timespec bt;
+            clock_gettime(CLOCK_REALTIME, &bt);
+            double d = timeDiff(&g.smoke[i].tstart, &bt);
+            if (d > g.smoke[i].maxtime - 3.0) {
+                g.smoke[i].alpha *= 0.95;
+                if (g.smoke[i].alpha < 1.0)
+                g.smoke[i].alpha = 1.0;
+            }
+            if (d * 3 > (g.smoke[i].maxtime)) {
+                //delete this smoke
+                --g.nsmokes;
+                g.smoke[i] = g.smoke[g.nsmokes];
+                continue;
+            }
+            ++i;
         }
     } else {
         clock_gettime(CLOCK_REALTIME, &g.cloudTime);
         double d = timeDiff(&g.cloudStart, &g.cloudTime);
         if (d > 0.01) {
-        //time to make another smoke particle
-        make_a_cloud();
-        timeCopy(&g.cloudStart, &g.cloudTime);
+            //time to make another smoke particle
+            make_a_cloud();
+            timeCopy(&g.cloudStart, &g.cloudTime);
         }
         //move smoke particles
         for (int i=0; i<g.nclouds; i++) {
-        //smoke rising
-        g.cloud[i].pos[0] += 0.015;
-        g.cloud[i].pos[0] += ((g.cloud[i].pos[0]*0.24) * (rnd() * 0.075));
-        //expand particle as it rises
-        //g.cloud[i].radius += g.cloud[i].pos[0]*0.002;
-        //wind might blow particle
-        g.cloud[i].pos[1] += 0.015;
-        if (g.cloud[i].pos[0] > 10.0) {
-            //experiment here with different values
-            //g.smoke[i].pos[1] += rnd() * 0.01;
+            //smoke rising
+            g.cloud[i].pos[0] += 0.015;
+            g.cloud[i].pos[0] += ((g.cloud[i].pos[0]*0.24) * (rnd() * 0.075));
+            //expand particle as it rises
+            //g.cloud[i].radius += g.cloud[i].pos[0]*0.002;
+            //wind might blow particle
+            g.cloud[i].pos[1] += 0.015;
+            if (g.cloud[i].pos[0] > 10.0) {
+                //experiment here with different values
+                //g.smoke[i].pos[1] += rnd() * 0.01;
+            }
         }
-        }
-        //this is where a smoke particle will fade away as it lingers
-     /*   int i=0;
-        while (i < g.nclouds) {
-        struct timespec bt;
-        clock_gettime(CLOCK_REALTIME, &bt);
-        double d = timeDiff(&g.cloud[i].tstart, &bt);
-        if (d > g.cloud[i].maxtime - 3.0) {
-            g.cloud[i].alpha *= 0.95;
-            if (g.cloud[i].alpha < 1.0)
-            g.cloud[i].alpha = 1.0;
-        }
-        if (d > g.cloud[i].maxtime) {
-            //delete this smoke
-            --g.nclouds;
-            g.cloud[i] = g.cloud[g.nclouds];
-            continue;
-        }
-        ++i;
-        
-    }*/
 
 }
  
@@ -1571,6 +1583,20 @@ void Global::physics()
 
 void Global::render()
 {
+    if (g.gameover) {
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glLoadIdentity();
+        glOrtho(0, xres, 0, yres, -1, 1);
+
+        Rect r;
+        r.bot = yres / 2;
+        r.left = xres / 2;
+        r.center = 1;
+        ggprint16(&r, 16, 0x00ff0000, "GAME OVER");
+        ggprint8b(&r, 16, 0x00ff0000, "Press R to Restart");
+        return;
+    }
+
     if(g.gamestart > 0){
         static int justonce = 1;
         if(justonce == 1){
@@ -1579,7 +1605,7 @@ void Global::render()
         }
         Rect r;
         glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
-        if (pause) {
+        if (g.pause) {
             // Setup for 2D rendering
             glViewport(0, 0, xres, yres);
             glMatrixMode(GL_PROJECTION);
@@ -1646,20 +1672,37 @@ void Global::render()
         drawSmoke();
         //
         //Draw tube
-        glPushMatrix();
-        glRotatef(45.0, 0.0, 1.0, 0.0);
-        glTranslatef(-8.0, 2.0, -8.0);
-        glRotatef(-90.0, 1.0, 0.0, 0.0);
-        tube(10, 2.0, 20.0);
-        glPopMatrix();
+        // glPushMatrix();
+        // glRotatef(45.0, 0.0, 1.0, 0.0);
+        // glTranslatef(-8.0, 2.0, -8.0);
+        // glRotatef(-90.0, 1.0, 0.0, 0.0);
+        // tube(10, 2.0, 20.0);
+        // glPopMatrix();
         //
-        static float angle = 0.0;
+
+        // Draw tubes
         glPushMatrix();
-        glTranslatef(-8.0, 2.0, -8.0);
-        glRotatef(angle, 0.0, 1.0, 0.0);
-        angle += 1.1;
-        cube(0.5, 0.5, 4.0);
+        glRotatef(0.0, 0.0, 1.0, 0.0);
+        glTranslatef(-0.0, 6.0, 20.0);
+        glRotatef(-90.0, 1.0, 0.0, 0.0);
+        tube(10, 6.0, 1.0);
         glPopMatrix();
+
+        glPushMatrix();
+        glRotatef(0.0, 0.0, 1.0, 0.0);
+        glTranslatef(-0.0, 12.0, 40.0);
+        glRotatef(45.0, 1.0, 0.0, 0.0);
+        tube(10, 6.0, 2.0);
+        glPopMatrix();
+
+        // Draw cube
+        // static float angle = 0.0;
+        // glPushMatrix();
+        // glTranslatef(-8.0, 2.0, -8.0);
+        // glRotatef(angle, 0.0, 1.0, 0.0);
+        // angle += 1.1;
+        // cube(0.5, 0.5, 4.0);
+        // glPopMatrix();
 
         //glPushMatrix();
        // glTranslatef(g.cameraDir[0], g.cameraDir[1], g.cameraDir[2]-5);
@@ -1755,10 +1798,10 @@ void Global::render()
         r.center = 0;
         //ggprint8b(&r, 16, 0x00990000, "to start press 'm'");
         glPopAttrib();
-	char buff[50];
+	    char buff[50];
         sprintf(buff, "fps: %d", g.fps);
         ggprint8b(&r, 16, 0xffffffff, buff);
-	sprintf(buff, "vsync: %d", g.vsync);
+	    sprintf(buff, "vsync: %d", g.vsync);
         ggprint8b(&r, 16, 0xffffffff, buff);
 
         if(g.cameraPosition[2] > (5.0-2.5))
@@ -1771,7 +1814,7 @@ void Global::render()
             r.left = g.xres/2 - g.xres/10 + 10;
             ggprint12(&r, 16, 0x00990000, "to start game");
             r.left = g.xres/2 - g.xres/10 + 20;
-            ggprint12(&r, 16, 0x00990000, "press 'm'");
+            ggprint12(&r, 16, 0x00990000, "press 'M'");
         }
 
     }
