@@ -22,7 +22,11 @@
 #include "fonts.h"
 #include <unistd.h>
 #include <time.h>
+#include <iostream>
+#include <fstream>
+#include <string>
 
+using namespace std;
 
 typedef float Flt;
 typedef Flt Vec[3];
@@ -154,6 +158,7 @@ public:
     float pitch;
     float yaw;
     float roll;
+    double highscore[10];
     Matrix cameraMat;
     Vec cameraDir;
 	GLfloat lightPosition[4];
@@ -172,11 +177,15 @@ public:
     float offset[3];
     int intro;
     int fps;
+    float planeVel;
     Vec planePos;
     Vec plane2Pos;
     Vec planeAngle;
     Vec plane2Dir;
     Vec4 plane2Joystick;
+    int start;
+    int checkScore;
+    double score;
     ~Global() {
         if (smoke)
         delete [] smoke;
@@ -217,6 +226,13 @@ public:
         vsync = 1;
         cameraDistancePlayer = 20;
         angleAroundPlayer = 0;
+        start = 0;
+        planeVel = 0.05;
+        for(int i = 0; i < 10; i++){
+            highscore[i] = 10-i;
+        }
+        checkScore = 1;
+        score = 0;
 	}
 	void init_opengl();
 	void init();
@@ -233,7 +249,53 @@ void crossProduct(const Vec v1, const Vec v2, Vec v3) {
     v3[1] = v1[2] * v2[0] - v1[0] * v2[2];
     v3[2] = v1[0] * v2[1] - v1[1] * v3[0];
 }
-
+void readHighscore(){
+    string inFileName = "Highscore.txt";
+    ifstream inFile;
+    inFile.open(inFileName.c_str());
+    if(inFile.is_open())
+    {
+        for(int i = 0; i<10; i++)
+        {
+            inFile >> g.highscore[i];
+            cout << g.highscore[i] << " ";
+        }
+        cout << endl;
+        inFile.close();
+    }
+    else{
+        ofstream outFile;
+        outFile.open(inFileName);
+        for(int i = 0; i <10; i++)
+        {
+            outFile << g.highscore[i]<<" ";
+        }
+        outFile.close();
+    }
+}
+int newHighscore(double newScore){
+    int Congratulations = 0;
+    string newHighname = "Highscore.txt";
+    ofstream outFile;
+    outFile.open(newHighname);
+    if(newScore > g.highscore[0]){
+        Congratulations ++;
+    }
+    for(int i = 0; i < 10; i++){
+        double temp;
+        if(newScore > g.highscore[i]){
+            temp = g.highscore[i];
+            g.highscore[i] = newScore;
+            newScore = temp;
+        }
+    }
+    for(int i = 0; i < 10; i++){
+        outFile << g.highscore[i] << " ";
+    }
+    outFile.close();
+    readHighscore();
+    return Congratulations;
+}
 class X11_wrapper {
 private:
 	Window win;
@@ -336,6 +398,7 @@ int main()
     struct timespec fpsCurr;
     physicsCountdown = 0.0;
     clock_gettime(CLOCK_REALTIME, &fpsStart);
+    readHighscore();
 	while (!done) {
 		while (x11.getXPending()) {
 			XEvent e = x11.getXNextEvent();
@@ -436,6 +499,9 @@ void Global::restart_game() {
     clock_gettime(CLOCK_REALTIME, &timeStart); // Restart game time
     nsmokes = 0; 
     nclouds = 0; 
+    start = 0;
+    planeVel = 0.06;
+    checkScore = 1;
 }
 
 int Global::check_keys(XEvent *e)
@@ -461,6 +527,7 @@ int Global::check_keys(XEvent *e)
         //int qdown = 0;
         if (key == XK_p) {
             pause ^= 1; // Toggle pause state
+            g.start = 0;
             return 0;
         }
         if (pause) {
@@ -601,7 +668,8 @@ int Global::check_keys(XEvent *e)
 				break;
             case XK_w:
                 //g.cameraPosition[1] += 0.2;
-                Vec heading;
+                g.planeVel += 0.01;
+                /*Vec heading;
                 heading[0] = 0.5 * sin((g.planeAngle[0] * M_PI)/180);
                 heading[2] = 0.5 * cos((g.planeAngle[0] * M_PI)/180);
                 heading[1] = -0.1 * g.planeAngle[2];
@@ -613,8 +681,11 @@ int Global::check_keys(XEvent *e)
                     g.planeAngle[1]--;
                 if(g.planeAngle[1] < 0.0f)
                     g.planeAngle[1]++;
+                    */
                 break;
             case XK_s:
+                if(g.planeVel > 0.00)
+                    g.planeVel -= 0.01;
                 //g.cameraPosition[1] -= 0.2;
                 //for(int i=0; i < 3; i++){
                 //    g.plane2Pos[i] -= g.cameraDir[i] * speed;
@@ -655,11 +726,12 @@ int Global::check_keys(XEvent *e)
                 system("convert -loop 0 -coalesce -layers OptimizeFrame -delay 20 ./images/img*.jpg abc.gif");
                 break;
             case XK_space:
-                g.plane2Pos[1] += 0.2;
+                //g.plane2Pos[1] += 0.2;
                 //g.cameraPosition[1] += 0.2;
+                g.start = 1;
                 break;
             case XK_Tab:
-                g.plane2Pos[1] -= 0.2;
+                //g.plane2Pos[1] -= 0.2;
                 //g.cameraPosition[1] -= 0.2;
                 break;
             case XK_p:
@@ -1554,6 +1626,23 @@ void Global::physics()
             }
             ++i;
         }
+        if(g.start){
+            //g.cameraPosition[1] += 0.2;
+                Vec heading;
+                float gravity = 0.05;
+                heading[0] = g.planeVel * sin((g.planeAngle[0] * M_PI)/180);
+                heading[2] = g.planeVel * cos((g.planeAngle[0] * M_PI)/180);
+                heading[1] = (-g.planeVel+gravity) * g.planeAngle[2];
+                for(int i=0; i < 3; i++){
+                    g.plane2Pos[i] += heading[i];
+                    //g.cameraPosition[i] += g.cameraDir[i] * speed;
+                }
+                if(g.planeAngle[1] > 0.0f)
+                    g.planeAngle[1]--;
+                if(g.planeAngle[1] < 0.0f)
+                    g.planeAngle[1]++;
+        }
+        
     } else {
         clock_gettime(CLOCK_REALTIME, &g.cloudTime);
         double d = timeDiff(&g.cloudStart, &g.cloudTime);
@@ -1587,13 +1676,27 @@ void Global::render()
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         glLoadIdentity();
         glOrtho(0, xres, 0, yres, -1, 1);
-
+        int Congratulations;
         Rect r;
         r.bot = yres / 2;
         r.left = xres / 2;
         r.center = 1;
         ggprint16(&r, 16, 0x00ff0000, "GAME OVER");
         ggprint8b(&r, 16, 0x00ff0000, "Press R to Restart");
+        if(g.checkScore){
+            Congratulations = newHighscore(g.score);
+            g.checkScore = 0;
+        }
+        if(Congratulations){
+            ggprint16(&r, 16, 0x00ff0000, "CONGRATULATIONS!!!");
+            ggprint16(&r, 16, 0x00ff0000, "New HighScore");
+        }
+        ggprint16(&r, 16, 0x00ff0000, "HighScore:");
+        for(int i = 0; i < 10; i++){
+            char buff[100];
+            sprintf(buff, "#%d: %f", i+1, g.highscore[i]);
+            ggprint8b(&r, 16, 0xffffffff, buff);
+        }
         return;
     }
 
@@ -1669,7 +1772,7 @@ void Global::render()
         glLightfv(GL_LIGHT0, GL_POSITION, g.lightPosition);
         //
         drawGround();
-        drawSmoke();
+        //drawSmoke();
         //
         //Draw tube
         // glPushMatrix();
@@ -1733,18 +1836,20 @@ void Global::render()
         r.bot = g.yres - 20;
         r.left = 10;
         r.center = 0;
-
+        char buff[50];
+        sprintf(buff, "fps: %d", g.fps);
+        ggprint8b(&r, 16, 0xffffffff, buff);
+        sprintf(buff, "vsync: %d", g.vsync);
+        ggprint8b(&r, 16, 0xffffffff, buff);
         ggprint8b(&r, 16, 0x00887766, "fps framework");
         ggprint8b(&r, 16, 0x00990000, "For help press 'l'");
         if(g.menu){
-            ggprint8b(&r, 16, 0x00990000, "w: Move Foward");
-            ggprint8b(&r, 16, 0x00990000, "s: Move Back");
-            ggprint8b(&r, 16, 0x00990000, "a: Move Left");
-            ggprint8b(&r, 16, 0x00990000, "s: Move Right");
-            ggprint8b(&r, 16, 0x00990000, "Up: look down");
-            ggprint8b(&r, 16, 0x00990000, "Down: look up");
-            ggprint8b(&r, 16, 0x00990000, "left: look Left");
-            ggprint8b(&r, 16, 0x00990000, "right: look Right");
+            ggprint8b(&r, 16, 0x00990000, "w: Speed up");
+            ggprint8b(&r, 16, 0x00990000, "s: Speed Down");
+            ggprint8b(&r, 16, 0x00990000, "Up: Stick down");
+            ggprint8b(&r, 16, 0x00990000, "Down: Stick up");
+            ggprint8b(&r, 16, 0x00990000, "left: Tilt Left");
+            ggprint8b(&r, 16, 0x00990000, "right: Tilt Right");
             ggprint8b(&r, 16, 0x00990000, "p: take screenshot");
 
         }
@@ -1764,7 +1869,7 @@ void Global::render()
         //
         glMatrixMode(GL_PROJECTION);
         glLoadIdentity();
-        GLuint texture[256][256][3];
+        /*GLuint texture[256][256][3];
         for(int i = 0; i < 256; i++) {
             for(int j = 0; j < 256; j++) {
                 float color = background -> cloudmap256[i*256+j];
@@ -1773,6 +1878,7 @@ void Global::render()
                 texture[i][j][2] = color;
             }
         }
+        */
 
         gluPerspective(45.0f, g.aspectRatio, 0.5f, 1000.0f);
         glMatrixMode(GL_MODELVIEW);
