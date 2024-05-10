@@ -104,6 +104,30 @@ public:
 		return 0.0f;
 	}
 };
+
+class Cube {
+public:
+    Vec pos;
+    bool active;
+    Cube() : pos{0.0, 6.0, 20.0}, active(true) {}
+    void setPos(float x, float y, float z) {
+        pos[0] = x;
+        pos[1] = y;
+        pos[2] = z;
+    }
+};
+class Tube {
+public:
+    Vec pos;
+    bool active;
+    Tube() : pos{0.0, 6.0, 20.0}, active(true) {}
+    void setPos(float x, float y, float z) {
+        pos[0] = x;
+        pos[1] = y;
+        pos[2] = z;
+    }
+};
+
 class Smoke {
     public:
         Vec pos;
@@ -186,6 +210,9 @@ public:
     int start;
     int checkScore;
     double score;
+    int point;
+    Cube cubes[20];
+    Tube tubes[20];
     ~Global() {
         if (smoke)
         delete [] smoke;
@@ -228,11 +255,23 @@ public:
         angleAroundPlayer = 0;
         start = 0;
         planeVel = 0.05;
+
+        srand(time(NULL));
+        for (int i = 0; i < 10; i++) {
+            float randomX = (float)(rand() % 200) - 100.0f;
+            float randomY = 6.0f + (float)(rand() % 20);
+            float randomZ = (float)(rand() % 200) - 100.0f;  
+            tubes[i].setPos(randomX, randomY, randomZ);
+            cubes[i].setPos(randomX, randomY, randomZ);
+            tubes[i].active = true;
+            cubes[i].active = true;
+        }
         for(int i = 0; i < 10; i++){
             highscore[i] = 10-i;
         }
         checkScore = 1;
         score = 0;
+        point = 0;
 	}
 	void init_opengl();
 	void init();
@@ -502,6 +541,17 @@ void Global::restart_game() {
     start = 0;
     planeVel = 0.06;
     checkScore = 1;
+    point = 0;
+    srand(time(NULL));
+    for (int i = 0; i < 10; i++) {
+        float randomX = (float)(rand() % 100) - 50.0f;  
+        float randomY = 6.0f + (float)(rand() % 20);  
+        float randomZ = (float)(rand() % 100) - 50.0f;         
+        tubes[i].setPos(randomX, randomY, randomZ);
+        cubes[i].setPos(randomX, randomY, randomZ);     
+        tubes[i].active = true;
+        cubes[i].active = true;
+    }
 }
 
 int Global::check_keys(XEvent *e)
@@ -516,7 +566,7 @@ int Global::check_keys(XEvent *e)
             }
         }
 
-        if(key == XK_p){
+        if(key == XK_p || key == XK_Escape){
             pause ^= 1;
             return 0;
         }
@@ -543,7 +593,7 @@ int Global::check_keys(XEvent *e)
                         pause = 0; // Resume game
                         break;
                     case 1:
-                        // Option menu
+                        return 1;
                         break;
                     case 2: // Main menu
                         {
@@ -570,7 +620,7 @@ int Global::check_keys(XEvent *e)
                     yy_transform(v, m);
                     trans_vector(m, g.cameraDir, g.cameraDir);
                     //trans_vector(m, g.plane2Pos, g.plane2Pos);
-                    g.planeAngle[0]--;
+                    g.planeAngle[0] -= 3;
                     if(g.planeAngle[1] < 30)
                         g.planeAngle[1]++;
                     //Vec v2 = {0.0, -0.01, 0.0};
@@ -590,7 +640,7 @@ int Global::check_keys(XEvent *e)
                     trans_vector(m, g.cameraDir, g.cameraDir);
                     //trans_vector(m, g.plane2Dir, g.plane2Dir);
                     //trans_vector(m, g.plane2Pos, g.plane2Pos);
-                    g.planeAngle[0]++;
+                    g.planeAngle[0] += 3;
                     if(planeAngle[1] > -30)
                         g.planeAngle[1]--;
                     //Vec v2 = {0.0, 0.01, 0.0};
@@ -754,8 +804,6 @@ int Global::check_keys(XEvent *e)
             case XK_l:
                 g.menu ^= 1;
                 break;
-			case XK_Escape:
-				return 1;
 		}
 	}
     }
@@ -1086,7 +1134,7 @@ void tube(int n, float rad, float len)
 
 void drawGround()
 {
-	int n = 11;
+	int n = 30;
 	float w = 10.0;
 	float d = 10.0;
 	float w2 = w*.49;
@@ -1558,9 +1606,6 @@ void make_a_plane2()
         glVertex3f(0.0, 0.30, 0.0);
         glVertex3f(1.5, 0.25, -1.5);
 
-
-
-
     //glVertex3f(0.0, len / 2, 0.0); // Wing root
     //glVertex3f(1.0, len / 2, 0.0); // Wing tip
     //glVertex3f(0.0, len / 2, 5.0); // Wing edge
@@ -1572,9 +1617,40 @@ void make_a_plane2()
     glEnd();
 }
 
+// spawn cubes and tubes
+void spawnObstacles(int index) {
+    float randomX = (float)(rand() % 200) - 100.0f;
+    float randomY = 6.0f + (float)(rand() % 20);
+    float randomZ = (float)(rand() % 200) - 100.0f;
+    g.cubes[index].setPos(randomX, randomY, randomZ);
+    g.tubes[index].setPos(randomX, randomY, randomZ);
+    g.cubes[index].active = true;
+    g.tubes[index].active = true;
+}
+
+void checkCollisions() {
+    float cubeSize = 4.0f; 
+    float halfSize = cubeSize / 2.0f;
+
+    // cubes collision
+    for (int i = 0; i < 10; i++) {
+        if (g.cubes[i].active) {
+            if (abs(g.plane2Pos[0] - g.cubes[i].pos[0]) < halfSize &&
+                abs(g.plane2Pos[1] - g.cubes[i].pos[1]) < halfSize &&
+                abs(g.plane2Pos[2] - g.cubes[i].pos[2]) < halfSize) {
+                g.cubes[i].active = false; // cube disappears on collision
+                g.tubes[i].active = false;
+                g.point += 5;
+                spawnObstacles(i);
+            }
+        }
+    }
+}
+
 
 void Global::physics()
 {
+    checkCollisions();
 //	g.cameraPosition[2] -= 0.1;
 //	g.cameraPosition[0] = 1.0 + sin(g.cameraPosition[2]*0.3);
     // Plane ground collision
@@ -1583,6 +1659,7 @@ void Global::physics()
         g.plane2Pos[1] = 0.0;
         g.gameover = 1;
     }
+
 
     if (g.gamestart > 0){
         clock_gettime(CLOCK_REALTIME, &g.smokeTime);
@@ -1728,7 +1805,7 @@ void Global::render()
             ggprint12(&r, 16, 0x00ff0000, "Game Paused");
 
             // Options for the pause menu
-            const char *options[] = { "Resume", "Options", "Main Menu" };
+            const char *options[] = { "Resume", "Quit", "Main Menu" };
             for (int i = 0; i < 3; i++) {
                 r.bot -= 20;
                 unsigned int color;
@@ -1774,53 +1851,40 @@ void Global::render()
         drawGround();
         //drawSmoke();
         //
-        //Draw tube
-        // glPushMatrix();
-        // glRotatef(45.0, 0.0, 1.0, 0.0);
-        // glTranslatef(-8.0, 2.0, -8.0);
-        // glRotatef(-90.0, 1.0, 0.0, 0.0);
-        // tube(10, 2.0, 20.0);
-        // glPopMatrix();
-        //
+        for (int i = 0; i < 10; i++) {
+            if (cubes[i].active) {
+                glPushMatrix();
+                glTranslatef(cubes[i].pos[0], cubes[i].pos[1], cubes[i].pos[2]);
+                cube(2.0f, 2.0f, 2.0f);
+                glPopMatrix();
+            }
+            if (tubes[i].active) {
+                glPushMatrix();
+                glRotatef(0.0, 0.0, 1.0, 0.0);
+                glTranslatef(tubes[i].pos[0], tubes[i].pos[1], tubes[i].pos[2]);
+                glRotatef(-90.0, 1.0, 0.0, 0.0);
+                tube(10, 6.0, 1.0);
+                glPopMatrix();
+            }
 
-        // Draw tubes
-        glPushMatrix();
-        glRotatef(0.0, 0.0, 1.0, 0.0);
-        glTranslatef(-0.0, 6.0, 20.0);
-        glRotatef(-90.0, 1.0, 0.0, 0.0);
-        tube(10, 6.0, 1.0);
-        glPopMatrix();
+        }
 
-        glPushMatrix();
-        glRotatef(0.0, 0.0, 1.0, 0.0);
-        glTranslatef(-0.0, 12.0, 40.0);
-        glRotatef(45.0, 1.0, 0.0, 0.0);
-        tube(10, 6.0, 2.0);
-        glPopMatrix();
-
-        // Draw cube
-        // static float angle = 0.0;
-        // glPushMatrix();
-        // glTranslatef(-8.0, 2.0, -8.0);
-        // glRotatef(angle, 0.0, 1.0, 0.0);
-        // angle += 1.1;
-        // cube(0.5, 0.5, 4.0);
-        // glPopMatrix();
+        
 
         //glPushMatrix();
-       // glTranslatef(g.cameraDir[0], g.cameraDir[1], g.cameraDir[2]-5);
-       // make_a_plane();
-       // glPopMatrix();
+        // glTranslatef(g.cameraDir[0], g.cameraDir[1], g.cameraDir[2]-5);
+        // make_a_plane();
+        // glPopMatrix();
         glPushMatrix();
         glTranslatef(g.plane2Pos[0], g.plane2Pos[1], g.plane2Pos[2]);
-	//glRotatef(90.0, 0.0, 0.0, 1.0);
-    //glRotatef(-90.0, 1.0, 0.0, 0.0);
-    //glRotatef(90.0, 0.0, 0.0, 1.0);
-    //glRotatef(90.0, 1.0, 0.0, 0.0);
-    glRotatef(g.planeAngle[1], 0.0, 0.0, 1.0);
-    glRotatef(g.planeAngle[0], 0.0, 1.0, 0.0);
-    glRotatef(g.planeAngle[2], 1.0, 0.0, 0.0);
-    make_a_plane2();
+        //glRotatef(90.0, 0.0, 0.0, 1.0);
+        //glRotatef(-90.0, 1.0, 0.0, 0.0);
+        //glRotatef(90.0, 0.0, 0.0, 1.0);
+        //glRotatef(90.0, 1.0, 0.0, 0.0);
+        glRotatef(g.planeAngle[1], 0.0, 0.0, 1.0);
+        glRotatef(g.planeAngle[0], 0.0, 1.0, 0.0);
+        glRotatef(g.planeAngle[2], 1.0, 0.0, 0.0);
+        make_a_plane2();
         glPopMatrix();
         
         //
@@ -1841,10 +1905,22 @@ void Global::render()
         ggprint8b(&r, 16, 0xffffffff, buff);
         sprintf(buff, "vsync: %d", g.vsync);
         ggprint8b(&r, 16, 0xffffffff, buff);
-        ggprint8b(&r, 16, 0x00887766, "fps framework");
         ggprint8b(&r, 16, 0x00990000, "For help press 'l'");
+        if (g.start == 0) {
+            r.bot = g.yres / 2;
+            r.left = g.xres / 2;
+            r.center = 1;
+            ggprint16(&r, 16, 0xffffffff, "Press SPACEBAR to start");
+        }
+
+        r.bot = yres / 2 + 200;
+        r.left = xres / 2;
+        r.center = 1;
+        ggprint16(&r, 16, 0xffffffff, "Points: %i ", g.point );
+        
+        ggprint8b(&r, 16, 0xffffffff, "Collect the cubes!" );
         if(g.menu){
-            ggprint8b(&r, 16, 0x00990000, "w: Speed up");
+            ggprint8b(&r, 16, 0x00990000, "w: Speed Up");
             ggprint8b(&r, 16, 0x00990000, "s: Speed Down");
             ggprint8b(&r, 16, 0x00990000, "Up: Stick down");
             ggprint8b(&r, 16, 0x00990000, "Down: Stick up");
