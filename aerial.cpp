@@ -34,6 +34,7 @@ typedef Flt Vec4[4];
 typedef Flt Matrix[4][4];
 
 #define M_PI 3.14159265358979323846
+#define BILLION 1E9
 //some macros
 const Vec upv = {0.0, 1.0, 0.0};
 const int MAX_SMOKES = 400;
@@ -211,6 +212,7 @@ public:
     int checkScore;
     double score;
     int point;
+    double timer;
     Cube cubes[20];
     Tube tubes[20];
     ~Global() {
@@ -255,7 +257,7 @@ public:
         angleAroundPlayer = 0;
         start = 0;
         planeVel = 0.05;
-
+        timer = 0;
         srand(time(NULL));
         for (int i = 0; i < 10; i++) {
             float randomX = (float)(rand() % 200) - 100.0f;
@@ -447,6 +449,10 @@ int main()
 		}
         clock_gettime(CLOCK_REALTIME, &timeCurrent);
         timeSpan = timeDiff(&timeStart, &timeCurrent);
+        if(g.start){
+            g.timer += (timeCurrent.tv_sec-timeStart.tv_sec)+
+                      (timeCurrent.tv_nsec-timeStart.tv_nsec)/BILLION;
+        }
         timeCopy(&timeStart, &timeCurrent);
 	physicsCountdown += timeSpan;
 	    while (physicsCountdown >= physicsRate){
@@ -542,6 +548,7 @@ void Global::restart_game() {
     planeVel = 0.06;
     checkScore = 1;
     point = 0;
+    timer = 0.0;
     srand(time(NULL));
     for (int i = 0; i < 10; i++) {
         float randomX = (float)(rand() % 100) - 50.0f;  
@@ -570,7 +577,7 @@ int Global::check_keys(XEvent *e)
             pause ^= 1;
             return 0;
         }
-        float speed = 0.5;
+        //float speed = 0.5;
         //float dist = 0.0;
         Vec up = {0.0, 1.0, 0.0};
         //const float sensitivity = 0.1f;
@@ -613,7 +620,7 @@ int Global::check_keys(XEvent *e)
                 break;
 			case XK_Right:
 				//g.cameraPosition[0] += 1.0;
-                {    
+                if(g.start){    
                     Vec v = {0.0, -0.1, 0.0};
                     Matrix m;
                     identity33(m);
@@ -632,7 +639,7 @@ int Global::check_keys(XEvent *e)
 				break;
 			case XK_Left:
 				//g.cameraPosition[0] -= 1.0;
-                {
+                if(g.start){
                     Vec v = {0.0, 0.1, 0.0};
                     Matrix m;
                     identity33(m);
@@ -654,7 +661,7 @@ int Global::check_keys(XEvent *e)
 				//g.cameraPosition[1] += 0.2;
                 //tilt camera down
                 //need to rotate camera vector
-                {
+                if(g.start){
                     //Vec v = {0.1, 0.0, 0.0};
                     Matrix m;
                     //identity33(m);
@@ -677,7 +684,7 @@ int Global::check_keys(XEvent *e)
 				break;
 			case XK_Down:
 				//g.cameraPosition[1] -= 0.2;
-                {
+                if(g.start){
                     //Vec v = {-0.1, 0.0, 0.0};
                     Matrix m;
                     //identity33(m);
@@ -704,21 +711,22 @@ int Global::check_keys(XEvent *e)
 			case XK_f:
 				//g.cameraPosition[2] -= 1.0;
                 // add the directio vector to the camera position vector
-                for(int i=0; i < 3; i++){
-                    g.plane2Pos[i] += g.cameraDir[i] * speed;
+                //for(int i=0; i < 3; i++){
+                //    g.plane2Pos[i] += g.cameraDir[i] * speed;
                     //g.cameraPosition[i] += g.cameraDir[i] * speed;
-                }
+                //}
 				break;
 			case XK_b:
 				//g.cameraPosition[2] += 1.0;
-                for(int i=0; i < 3; i++){
-                    g.plane2Pos[i] -= g.cameraDir[i] * speed;
+                //for(int i=0; i < 3; i++){
+                //    g.plane2Pos[i] -= g.cameraDir[i] * speed;
                     //g.cameraPosition[i] -= g.cameraDir[i] * speed;
-                }
+                //}
 				break;
             case XK_w:
                 //g.cameraPosition[1] += 0.2;
-                g.planeVel += 0.01;
+                if(g.start)
+                    g.planeVel += 0.01;
                 /*Vec heading;
                 heading[0] = 0.5 * sin((g.planeAngle[0] * M_PI)/180);
                 heading[2] = 0.5 * cos((g.planeAngle[0] * M_PI)/180);
@@ -734,8 +742,10 @@ int Global::check_keys(XEvent *e)
                     */
                 break;
             case XK_s:
-                if(g.planeVel > 0.00)
-                    g.planeVel -= 0.01;
+                if(g.start){
+                    if(g.planeVel > 0.00)
+                        g.planeVel -= 0.01;
+                }
                 //g.cameraPosition[1] -= 0.2;
                 //for(int i=0; i < 3; i++){
                 //    g.plane2Pos[i] -= g.cameraDir[i] * speed;
@@ -1654,7 +1664,7 @@ void Global::physics()
 //	g.cameraPosition[2] -= 0.1;
 //	g.cameraPosition[0] = 1.0 + sin(g.cameraPosition[2]*0.3);
     // Plane ground collision
-    if (g.plane2Pos[1] <= 0.0) {
+    if (g.plane2Pos[1] <= 0.0 || g.timer >= 60.00) {
         // Plane touches ground
         g.plane2Pos[1] = 0.0;
         g.gameover = 1;
@@ -1761,7 +1771,7 @@ void Global::render()
         ggprint16(&r, 16, 0x00ff0000, "GAME OVER");
         ggprint8b(&r, 16, 0x00ff0000, "Press R to Restart");
         if(g.checkScore){
-            Congratulations = newHighscore(g.score);
+            Congratulations = newHighscore(g.point);
             g.checkScore = 0;
         }
         if(Congratulations){
@@ -1771,7 +1781,10 @@ void Global::render()
         ggprint16(&r, 16, 0x00ff0000, "HighScore:");
         for(int i = 0; i < 10; i++){
             char buff[100];
-            sprintf(buff, "#%d: %f", i+1, g.highscore[i]);
+            if(g.point == g.highscore[i])
+                sprintf(buff, "#%d: %f <--Your Score", i+1, g.highscore[i]);
+            else
+                sprintf(buff, "#%d: %f", i+1, g.highscore[i]);
             ggprint8b(&r, 16, 0xffffffff, buff);
         }
         return;
@@ -1905,7 +1918,9 @@ void Global::render()
         ggprint8b(&r, 16, 0xffffffff, buff);
         sprintf(buff, "vsync: %d", g.vsync);
         ggprint8b(&r, 16, 0xffffffff, buff);
-        ggprint8b(&r, 16, 0x00990000, "For help press 'l'");
+        sprintf(buff, "timer: %f", 60.0 - g.timer);
+        ggprint8b(&r, 16, 0xffffffff, buff);
+        ggprint8b(&r, 16, 0x00990000, "For help press 'L'");
         if (g.start == 0) {
             r.bot = g.yres / 2;
             r.left = g.xres / 2;
